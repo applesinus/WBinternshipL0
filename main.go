@@ -6,6 +6,8 @@ import (
 	"os"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/nats-io/nats.go"
+	"github.com/nats-io/stan.go"
 )
 
 var conn *pgx.Conn
@@ -15,6 +17,33 @@ var psql_port = "10000/postgres"
 
 func main() {
 	fmt.Printf("Hello, World!\n")
+
+	nc, err := nats.Connect("nats://localhost:4222")
+	if err != nil {
+		fmt.Printf("Failed to connect to NATS Streaming server: %v\n", err)
+	}
+	defer nc.Close()
+
+	sc, err := stan.Connect("cluster", "client-123", stan.NatsConn(nc))
+	if err != nil {
+		fmt.Printf("Failed to connect to NATS Streaming channel: %v\n", err)
+	}
+	defer sc.Close()
+
+	sub, err := sc.Subscribe("test-channel", func(msg *stan.Msg) {
+		fmt.Printf("Received a message: %s\n", string(msg.Data))
+	})
+	if err != nil {
+		fmt.Printf("Failed to subscribe to NATS Streaming channel: %v\n", err)
+	}
+	defer sub.Unsubscribe()
+
+	err = sc.Publish("test-channel", []byte("Hello, NATS Streaming!"))
+	if err != nil {
+		fmt.Printf("Failed to send message to NATS Streaming channel: %v\n", err)
+	}
+
+	// splitter
 
 	conn, connection_err = pgx.Connect(context.Background(), "postgres://user:passw0rd@localhost:"+psql_port)
 
