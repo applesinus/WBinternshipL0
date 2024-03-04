@@ -83,22 +83,25 @@ func nats_streaming_connection(conn *pgx.Conn, mutex *sync.Mutex) (*nats.Conn, s
 
 	// subscribing to NATS Streaming channel
 	sub, err := sc.Subscribe("test-channel", func(msg *stan.Msg) {
-		// saving data to DB from NATS Streaming channel
-		fmt.Printf("Received a message: %s\n", string(msg.Data)) //test
+		// anon function for saving data to cache and DB from this channel
 
-		// TODO: save data to DB
-
-		// locking mutex and appending new order to the global slice in cache
-		/*var data order
-		err, data := json.Marshal(msg.Data)
-		mutex.Lock()
-		cached_data = append(cached_data, data)
-		mutex.Unlock()
-
-		_, err := conn.Exec(context.Background(), "insert into wb.order values ($1)", string(msg.Data))
+		var new_order order
+		err := json.Unmarshal(msg.Data, &new_order)
 		if err != nil {
-			fmt.Printf("Failed to insert new order: %v\n", err)
-		}*/
+			fmt.Printf("Failed to parse JSON: %v\n", err)
+			fmt.Printf("CATCHING INVALID DATA AS IT SUPPOSED ACCORDING TO THE TASK")
+		} else {
+			// locking mutex and appending new order to the global slice in cache
+			mutex.Lock()
+			cached_data = append(cached_data, new_order)
+			mutex.Unlock()
+
+			// inserting new order to Postgres
+			_, err = conn.Exec(context.Background(), "insert into wb.order values ($1)", string(msg.Data))
+			if err != nil {
+				fmt.Printf("Failed to insert new order: %v\n", err)
+			}
+		}
 	})
 	if err != nil {
 		fmt.Printf("Failed to subscribe to NATS Streaming channel: %v\n", err)
@@ -210,13 +213,14 @@ func main_page(conn *pgx.Conn, sc stan.Conn, mutex *sync.Mutex) http.HandlerFunc
 }
 
 func main() {
+	println("check")
 	var mu sync.Mutex
 	conn := postgres_connection()
 	if conn == nil {
 		fmt.Printf("[MAIN] Failed to connect to Postgres server\n")
 		return
 	}
-	nc, sc, sub := nats_streaming_connection(conn)
+	nc, sc, sub := nats_streaming_connection(conn, &mu)
 	if nc == nil || sc == nil || sub == nil {
 		fmt.Printf("[MAIN] Failed to connect to NATS Streaming server\n")
 		return
