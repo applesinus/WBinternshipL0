@@ -3,8 +3,8 @@ begin
     create schema if not exists wb;
 
     create table if not exists wb.order (
-        order_info jsonb not null,
-        order_id serial primary key
+        order_id varchar(255) primary key,
+        order_info jsonb not null
     );
 end;
 $$

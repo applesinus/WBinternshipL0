@@ -5,15 +5,23 @@
         <title>Main page</title>
     </head>
     <body>
-        <h2>Existing data:</h2>
+        <h2>Existing orders:</h2>
         {{range .JSONs}}
             <p>{{.}}</p>
         {{end}}
         <hr>
-        <h2>New data</h2>
+        <h2>Save new order</h2>
         <form action="/" method="post" enctype="multipart/form-data">
             <input type="file" name="new_file" id="new_file">
             <input type="submit" value="Upload">
         </form>
+        <hr>
+        <h2>Get order by uid</h2>
+        <form action="/" method="post">
+            <input type="text" name="uid">
+            <input type="submit" value="Get">
+        </form>
+        <h3>{{.UID}}</h3>
+        <p>{{.order}}</p>
     </body>
 </html>

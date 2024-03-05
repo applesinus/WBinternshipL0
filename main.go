@@ -64,7 +64,7 @@ type order struct {
 	OofShard          string `json:"oof_shard"`
 }
 
-var cached_data []order
+var cached_data map[string]order
 
 func nats_streaming_connection(conn *pgx.Conn, mutex *sync.Mutex) (*nats.Conn, stan.Conn, stan.Subscription) {
 	// connecting to NATS Streaming
@@ -89,15 +89,15 @@ func nats_streaming_connection(conn *pgx.Conn, mutex *sync.Mutex) (*nats.Conn, s
 		err := json.Unmarshal(msg.Data, &new_order)
 		if err != nil {
 			fmt.Printf("Failed to parse JSON: %v\n", err)
-			fmt.Printf("CATCHING INVALID DATA AS IT SUPPOSED ACCORDING TO THE TASK")
+			fmt.Printf("CATCHING INVALID DATA AS IT'S SUPPOSED ACCORDING TO THE TASK\n")
 		} else {
 			// locking mutex and appending new order to the global slice in cache
 			mutex.Lock()
-			cached_data = append(cached_data, new_order)
+			cached_data[new_order.OrderUID] = new_order
 			mutex.Unlock()
 
 			// inserting new order to Postgres
-			_, err = conn.Exec(context.Background(), "insert into wb.order values ($1)", string(msg.Data))
+			_, err = conn.Exec(context.Background(), "insert into wb.order values ($1, $2)", new_order.OrderUID, string(msg.Data))
 			if err != nil {
 				fmt.Printf("Failed to insert new order: %v\n", err)
 			}
@@ -131,11 +131,6 @@ func postgres_connection() *pgx.Conn {
 		fmt.Printf("An error in file %v:  %v\n", file_name, err)
 	}
 
-	// creating DB in Postgres if it doesn't exist
-	_, err = conn.Exec(context.Background(), "call create_DB()")
-	if err != nil {
-		fmt.Printf("An error calling CREATE_DB in file %v:  %v\n", file_name, err)
-	}
 	return conn
 }
 
@@ -174,6 +169,10 @@ func main_page(conn *pgx.Conn, sc stan.Conn, mutex *sync.Mutex) http.HandlerFunc
 	// wrapping main page handler
 	return func(w http.ResponseWriter, r *http.Request) {
 
+		got_uid := "got no or invalid uid"
+		got_order := order{}
+		got_order.OrderUID = "got no or invalid uid"
+
 		// checking for new file in POST request (to send it to NATS Streaming channel)
 		if r.Method == http.MethodPost {
 			new_file, _, err := r.FormFile("new_file")
@@ -186,22 +185,31 @@ func main_page(conn *pgx.Conn, sc stan.Conn, mutex *sync.Mutex) http.HandlerFunc
 				} else {
 					var new_order order
 					err := json.Unmarshal(data, &new_order)
-
 					if err != nil {
 						fmt.Printf("Failed to parse JSON: %v\n", err)
-					} else {
-						err = sc.Publish("test-channel", data)
-						if err != nil {
-							fmt.Printf("Failed to send message to NATS Streaming channel: %v\n", err)
-						}
 					}
+
+					err = sc.Publish("test-channel", data)
+					if err != nil {
+						fmt.Printf("Failed to send message to NATS Streaming channel: %v\n", err)
+					}
+
 				}
 				new_file.Close()
+			}
+			if r.FormValue("uid") != "" {
+				got_uid = r.FormValue("uid")
+				got_order = cached_data[got_uid]
+				if got_order.OrderUID == "" {
+					got_order.OrderUID = "got no or invalid uid"
+				}
 			}
 		}
 
 		data := map[string]interface{}{
 			"JSONs": cached_data,
+			"UID":   got_uid,
+			"order": got_order,
 		}
 
 		t, _ := template.ParseFiles("web/main.html")
@@ -212,14 +220,38 @@ func main_page(conn *pgx.Conn, sc stan.Conn, mutex *sync.Mutex) http.HandlerFunc
 	}
 }
 
+func recover_cache_from_database(conn *pgx.Conn, mutex *sync.Mutex) {
+	rows, err := conn.Query(context.Background(), "select * from wb.order")
+	if err != nil {
+		fmt.Printf("Failed to execute query: %v\n", err)
+	}
+	for rows.Next() {
+		var new_order_data []byte
+		var id string
+		var new_order order
+		err := rows.Scan(&id, &new_order_data)
+		if err != nil {
+			fmt.Printf("Failed to scan row: %v\n", err)
+		}
+		err = json.Unmarshal(new_order_data, &new_order)
+		if err != nil {
+			fmt.Printf("Failed to parse JSON: %v\n", err)
+		}
+		mutex.Lock()
+		cached_data[id] = new_order
+		mutex.Unlock()
+	}
+}
+
 func main() {
-	println("check")
+	cached_data = make(map[string]order)
 	var mu sync.Mutex
 	conn := postgres_connection()
 	if conn == nil {
 		fmt.Printf("[MAIN] Failed to connect to Postgres server\n")
 		return
 	}
+	recover_cache_from_database(conn, &mu)
 	nc, sc, sub := nats_streaming_connection(conn, &mu)
 	if nc == nil || sc == nil || sub == nil {
 		fmt.Printf("[MAIN] Failed to connect to NATS Streaming server\n")
@@ -231,6 +263,12 @@ func main() {
 		return
 	}
 
+	// creating DB in Postgres if it doesn't exist
+	/*_, err := conn.Exec(context.Background(), "call create_DB()")
+	if err != nil {
+		fmt.Printf("An error calling CREATE_DB:  %v\n", err)
+	}*/
+
 	go server_handler(conn, sc, &mu)
 
 	// stop server
@@ -241,10 +279,11 @@ func main() {
 
 	server.Shutdown(context.Background())
 
-	_, err := conn.Exec(context.Background(), "call drop_DB()")
+	// deleting DB in Postgres
+	/*_, err := conn.Exec(context.Background(), "call drop_DB()")
 	if err != nil {
 		fmt.Printf("An error calling DROP_DB:  %v\n", err)
-	}
+	}*/
 
 	sub.Unsubscribe()
 	sc.Close()
