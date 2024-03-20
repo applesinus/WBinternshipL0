@@ -3,6 +3,7 @@
 <a name="Russian"></a>
 # Русский
 <p id="ru"><h3>ТЗ Lv0 на стажировке Wildberries</h3></p>
+
 <p>Необходимо разработать демонстрационный сервис с простейшим интерфейсом, отображающий данные о заказе</p>
 <p>Модель данных в формате JSON прилагается к заданию</p>
 <p>Что нужно сделать:</p>
@@ -36,13 +37,12 @@
   <li>Nats-streaming разверните локально (не путать с Nats)</li>
 </ul>
 
-<hr>
-
 [Перейти к русскому](#Russian)
+
 <a name="English"></a>
 # English
-
 <p><h3>Specifications for Lv0 at the Wildberries internship</h3></p>
+
 <p>It is necessary to develop a demo service with a simple interface that displays order data</p>
 <p>The data model in JSON format is attached to the assignment</p>
 <p>What to do:</p>
